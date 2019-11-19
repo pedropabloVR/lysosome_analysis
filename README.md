@@ -9,9 +9,5 @@ algorithm (Crocker and Grier, 1996) in a MATLAB implementation to track the sphe
 
 ![Lysosomes](images/lysosomeClassification.jpg)
 
-<p align="center"> 
-<img src="https://github.com/pedropabloVR/lysosome_analysis/images/lysosomeClassification.jpg">
-</p>
-
 The average displacement and velocities for the particles are extracted and plotted, and .csv files with the 
 tracks and the velocities are also extracted for plotting in R. 
