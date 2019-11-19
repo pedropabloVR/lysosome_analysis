@@ -8,7 +8,7 @@ The script classifies lysosomes into two categories, spheres and tubes, and then
 algorithm (Crocker and Grier, 1996) in a MATLAB implementation to track the spherical and tubular particles individually.
 
 <p align="center"> 
-<img src="https://github.com/pedropabloVR/lysosome_analysis/images/lysosome_classification.png">
+<img src="https://github.com/pedropabloVR/lysosome_analysis/images/lysosome_classification.jpg">
 </p>
 
 The average displacement and velocities for the particles are extracted and plotted, and .csv files with the 
