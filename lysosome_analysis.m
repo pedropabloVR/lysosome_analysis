@@ -1,0 +1,436 @@
+% Script to classify and track lysosomes with spherical and tubular shapes.
+% The average velocities of each type of lysosome are computed and plotted.
+
+% This script takes in a thresholded image stack of lysosome (live-cell
+% recording which has been previously thresholded in ImageJ) and classifies
+% the lysosomes into spherical and tubular objects using regionprops.
+% The script then uses the Crocker and Grier tracking package 
+
+% Pedro Vallejo Ramirez and Eric J. Rees
+% Created: 29/10/2018
+% Updated: 19/11/2019
+
+clear all
+close all 
+warning('off', 'Images:initSize:adjustingMag');
+
+
+%% Set default values 
+
+% Load thresholded image stack (produced in Fiji, for example)
+PathInput               = 'D:\OneDriveNew\OneDrive - University of Cambridge\lag\matlab\lysosome_analysis\sample data 20191118';
+%PathInput               = '/Users/pedrovallejo/OneDrive - University Of Cambridge/lag/dstorm/lysosomes/Lysosome tracking/thresholded';
+
+[filename,Path]         = uigetfile([PathInput filesep '*.tif']);
+info                    = imfinfo([Path filename]);
+N_frames                = length(info);
+min_area                = 20; % pixels?
+jump_sphere_max         = 17; % max distance traveled for a detected blob from one frame to the next
+jump_tube_max           = 30;
+eccentricity_threshold  = 0.8; % Threshold to judge between spherical and elliptical objects
+data_for_tracking       = [];
+
+showtracks              = 1; % switch to 1 to plot plotted tracks to folder. 
+im_flag                 = 1; % switch to 1 to see all individual frames and their classification
+video_flag              = 0; % switch to 1 to record a video of the classified lysosomes
+print_results           = 0; % switch to 1 to save plots to a folder
+pause_flag              = 0;
+
+
+% Variables for making nice figures in matlab
+width                   = 10;  % width in centimeters
+height                  = 10;  % height in centimeters
+font_size               = 11;
+lw                      = 1.0; % linewidth
+msz                     = 4;   % markersize
+
+
+% Prompt user to enter values 
+prompt                  = {'Maximum jump distance in pixels for sphere','Maximum jump distance in pixels for tube',};
+dlg_title               = 'Input';
+num_lines               = 1;
+defaultans              = {num2str(jump_sphere_max),num2str(jump_tube_max)};
+answer                  = inputdlg(prompt,dlg_title,num_lines,defaultans);
+
+jump_size_sphere        = str2num(answer{1});
+jump_size_tube          = str2num(answer{2});
+
+%% changing the defaults for all the figures (to-do still)
+% 
+% The properties we've been using in the figures
+set(0,'defaultLineLineWidth',lw);   % set the default line width to lw
+set(0,'defaultLineMarkerSize',msz); % set the default line marker size to msz
+
+% % Set the default Size for display
+% defpos = get(0,'defaultFigurePosition');
+% set(0,'defaultFigurePosition', [defpos(1) defpos(2) width*100 height*100]);
+% 
+% % Set the defaults for saving/printing to a file
+% set(0,'defaultFigureInvertHardcopy','on'); % This is the default anyway
+% set(0,'defaultFigurePaperUnits','centimeters'); % This is the default anyway
+% defsize = get(gcf, 'PaperSize');
+% left = (defsize(1)- width)/2;
+% bottom = (defsize(2)- height)/2;
+% defsize = [left, bottom, width, height];
+% set(0, 'defaultFigurePaperPosition', [0 0 7 7]);
+
+
+%%  Create output folders
+file = strsplit(filename,'.');
+output_dir_path = fullfile(Path,sprintf('tracking_results_%s',file{1}));
+if exist(output_dir_path, 'dir')
+    opts.Interpreter = 'tex';
+    opts.Default = 'Continue';
+    quest = '\fontsize{12}An output folder ''tracking\_results'' already exists. If you continue, data in this folder might be overwritten.';
+    answer = questdlg(quest,'Message','Cancel','Continue',opts);
+else
+    mkdir(output_dir_path);
+end
+
+if video_flag
+    file = strsplit(filename,'.');
+    video_dir_path = fullfile(Path,sprintf('video_%s',file{1}));
+    if exist(video_dir_path, 'dir')
+        opts.Interpreter = 'tex';
+        opts.Default = 'Continue';
+        quest = '\fontsize{12}An output folder ''video'' already exists. If you continue, data in this folder might be overwritten.';
+        answer = questdlg(quest,'Message','Cancel','Continue',opts);
+    else
+        mkdir(video_dir_path);
+    end
+
+end 
+
+%% Classification of blobs into spherical and tubular shapes
+
+for lpFr = 1:N_frames
+    
+    im_dat      = imread([Path filename], lpFr);
+    im_thr      = im_dat > 0;
+    im_size     = size(im_dat);
+    
+    % Get features of the thresholded image using regionprops
+    stats       = regionprops(im_thr, 'Centroid', 'Area', 'Eccentricity','MajorAxisLength');
+    stats_table = struct2table(stats);
+    
+    Areas           = stats_table.Area;
+    Eccentricities  = stats_table.Eccentricity;
+    Centroids       = stats_table.Centroid;
+    
+    % use logical indexing
+    large   = Areas > min_area;
+    elong   = Eccentricities>eccentricity_threshold;
+    tube    = large & elong;
+    sphere  = large & not(elong);
+    
+    if im_flag       
+        
+        % Classifier scatterplot 
+        figure(1)
+%         figure('Units','centimeters',...
+%             'Position',[0 0 width height],...
+%             'PaperPositionMode','auto');
+        set(gca,...
+            'FontSize',font_size,...
+            'Units','points',...
+            'FontUnits','points',...
+            'FontWeight','normal',...
+            'FontName','Helvetica');
+        % plotting the actual data
+        scatter(Areas, Eccentricities,'k')
+        hold on
+         scatter(Areas(sphere), Eccentricities(sphere),'MarkerEdgeColor',[0 0.5 1]);
+         scatter(Areas(tube), Eccentricities(tube),'MarkerEdgeColor',[1 0.5 0]);
+        hold off
+        % Setting labels
+        legend({'outliers','sphere','tube'},'Location','SouthEast','FontSize',font_size);
+        xlabel('Area / pixels')
+        ylabel('Eccentricity')
+        %print('SampleFigure_outliers','-dpng','-r300') % print at 300 dpi resolution
+%         fig1 = gcf;
+%         fig1.PaperUnits = 'centimeters';
+%         fig1.PaperPosition = [0 0 5 5];
+        %print('5by3DimensionsFigure','-dpng','-r0')
+        fig1 = gcf;
+        
+        % Classified lyso video
+        figure(2)
+        imshow(im_thr)
+        hold on
+         scatter(Centroids(sphere,1), Centroids(sphere,2), 'r','LineWidth',1.5)
+         scatter(Centroids(tube,1), Centroids(tube,2), 'g','LineWidth',1.5)
+        hold off
+        frame(lpFr) = getframe(gcf);
+        fig2 = gcf;
+        if video_flag
+            print(fig2,[video_dir_path filesep 'classified_lysos_' num2str(lpFr)],'-dpng','-r300') % print at 300 dpi resolution
+        end 
+     end 
+    
+    acceptable  = sphere|tube; % sphere or tube
+    class       = sphere + 2*tube;
+    data_frame  = [Centroids, lpFr * ones(length(Areas),1), class];
+    
+    % Neglect objects that are neither sphere (1)  nor tube (2)
+    data_frame(data_frame(:,4)==0, :) = [];
+    
+    % Accumulate from each frame
+    data_for_tracking = [data_for_tracking; data_frame];
+    if pause_flag
+   pause
+    end 
+end
+
+
+% Choose two subsets of the data which contain spheres and tube structures.
+data_tracking_sphere = data_for_tracking( (data_for_tracking(:,4)==1), 1:3);
+data_tracking_tube   = data_for_tracking( (data_for_tracking(:,4)==2), 1:3);
+
+% Write away workspace variables in a parameter file
+save(fullfile([output_dir_path filesep],'parameters.mat'));
+
+%% Print out figures from the classification
+if print_results && im_flag
+    print(fig1,[output_dir_path filesep 'SampleFigure_outliers'],'-dpng','-r300') % print at 300 dpi resolution
+    %print(fig2,[output_dir_path filesep 'classified_lysos'],'-dpng','-r300') % print at 300 dpi resolution
+end 
+
+%% TRACKING step
+
+% Run Crocker and Grier package for tracking on the sphere and tube data separately
+
+% Tracking parameters
+param.mem   = 3; % number of steps a particle can be lost and recovered. 
+param.dim   = 2; % default value for 2 data points 
+param.good  = 4; % eliminates trajectories with fewer than param.good valid positions
+param.quiet = 0; % set to 1 to see no text output 
+
+% Call tracking code
+res_sphere  = track(data_tracking_sphere,jump_size_sphere,param); % results for tracking sphere structures
+res_tube    = track(data_tracking_tube,jump_size_tube,param);   % results for tracking tube-like structures
+
+% initialize arrays to store results
+n_tracks_sphere = max(res_sphere(:,4));  % number of tracks 
+n_tracks_tube   = max(res_tube(:,4));
+tracks          = cell(n_tracks_sphere,1); % cell to store all the sphere tracks 
+disp_cell       = cell(n_tracks_sphere,1);
+dt              = 0.0250; % 25 millisecond exposure time for SIM reconstructions. 
+
+avg_disp_sphere     = zeros(n_tracks_sphere,1);
+avg_velocity_sphere = zeros(n_tracks_sphere,1);
+avg_disp_tube       = zeros(n_tracks_sphere,1);
+avg_velocity_tube   = zeros(n_tracks_sphere,1);
+
+% Loop over every track
+all_disp_sphere         = [];
+total_disp_sphere       = [];
+total_disp_tube         = [];
+list_total_disp_sphere  = [];
+list_total_disp_tube    = [];
+
+%% Track spherical objects
+
+for tr = 1: n_tracks_sphere
+    
+    % separate individual tracks
+    tracks{tr}      = res_sphere(res_sphere(:,4)== tr, :);
+    track           = tracks{tr};
+    track_length    = size(track);
+    
+    for j = 2:track_length(1) % looping over a single track to calculate step-wise displacement 
+        disp(j-1) = sqrt( (track(j,2)-track(j-1,2))^2 + (track(j,1)-track(j-1,1))^2 );  
+        
+        if showtracks
+            figure(1);
+            set(gca,...
+                'FontSize',font_size,...
+                'Units','Normalized',...
+                'FontUnits','points',...
+                'FontWeight','normal',...
+                'FontName','Helvetica');
+            xlim([0 im_size(1)])
+            ylim([0 im_size(2)])
+            plot(track(1:j,1),track(1:j,2),'LineWidth',1); % plotting path travelled
+            title('Tracks for spherical particles');
+            xlabel('x (pixels)');
+            ylabel('y (pixels)');
+            hold on
+            fig3 = gcf;
+        end 
+    end
+    
+    % Calculate total displacement in every track
+    total_disp_sphere           = sqrt((track(end,2)-track(1,2))^2 + (track(end,1)-track(1,1))^2 );
+    list_total_disp_sphere(tr)  = total_disp_sphere;
+    
+    % average displacement and average velocity
+    all_disp_sphere         = [all_disp_sphere;disp']; % based on the step-wise displacement
+    avg_disp_sphere(tr)     = mean(disp);
+    avg_velocity_sphere(tr) = avg_disp_sphere(tr)./dt;    
+    
+end 
+hold off
+
+%print spherical tracks
+if print_results
+% To print out the figures with the tracks 
+    if showtracks
+         set(gca,'Units','Normalized','FontSize',font_size);
+         %set(gcf,'Units','centimeters','Position',[0 0 width height]);
+         saveas(fig3,[output_dir_path filesep 'tracks_spherical']);
+         print(fig3,[output_dir_path filesep 'tracks_spherical'],'-dpng','-r300') % print at 300 dpi resolution
+    end 
+end 
+
+%% Track tubular objects
+
+all_disp_tube = [];
+for tr = 1: n_tracks_tube
+    
+    % separate individual tracks
+    tracks{tr}      = res_tube(res_tube(:,4)== tr, :);
+    track           = tracks{tr};
+    track_length    = size(track);
+    
+    for j = 2:2:track_length(1) % looping over a single track to calculate step-wise displacement
+       disp(j-1) = sqrt( (track(j,2)-track(j-1,2))^2 + (track(j,1)-track(j-1,1))^2 ); 
+       disp(j-1) = sqrt( (track(j,2)-track(j-1,2))^2 + (track(j,1)-track(j-1,1))^2 );  
+       if showtracks
+           figure(2);
+            set(gca,...
+                'FontSize',font_size,...
+                'Units','Normalized',... % this will only resize when the Units property is set to normalized
+                'FontUnits','points',...
+                'FontWeight','normal',...
+                'FontName','Helvetica');
+           xlim([0 im_size(1)])
+           ylim([0 im_size(2)])
+           plot(track(1:j,1),track(1:j,2),'LineWidth',1); % plotting path travelled
+           title('Tracks for tubular particles');
+           xlabel('x (pixels)');
+           ylabel('y (pixels)');
+           hold on
+           fig4 = gcf;
+       end 
+    end 
+    
+    % Calculate total displacement in every track
+    total_disp_tube          = sqrt((track(end,2)-track(1,2))^2 + (track(end,1)-track(1,1))^2 );
+    list_total_disp_tube(tr) = total_disp_tube;
+    
+    % average displacement and velocity
+    all_disp_tube           = [all_disp_tube;disp']; % based on the step-wise displacement
+    avg_disp_tube(tr)       = mean(disp);
+    avg_velocity_tube(tr)   = avg_disp_tube(tr)./dt;
+
+    
+end
+hold off
+
+% print tube tracks
+
+if print_results
+% To print out the figures with the tracks 
+    if showtracks
+         set(gca,'Units','Normalized','FontSize',font_size);
+         %set(gcf,'Units','centimeters','Position',[0 0 width height]);
+         saveas(fig4,[output_dir_path filesep 'tracks_tubular']);
+         print(fig4,[output_dir_path filesep 'tracks_tubular'],'-dpng','-r300') % print at 300 dpi resolution
+    end 
+end 
+
+
+%% Save results in a table for further plotting
+
+sphere_data = [avg_disp_sphere avg_velocity_sphere];
+header = 'Average displacement, Average velocity\n';
+fid = fopen(fullfile([output_dir_path filesep],'sphere_data'),'wt');
+fprintf(fid,header);
+        if fid > 0
+            fprintf(fid,'%f,%f,%f\n',sphere_data');
+            fclose(fid);
+        end
+
+tube_data = [avg_disp_tube avg_velocity_tube];
+header = 'Average displacement, Average velocity\n';
+fid = fopen(fullfile([output_dir_path filesep],'tube_data'),'wt');
+fprintf(fid,header);
+        if fid > 0
+            fprintf(fid,'%f,%f,%f\n',tube_data');
+            fclose(fid);
+        end
+
+%% Save number of tracks, # of particles detected of each type
+fid = fopen(fullfile([output_dir_path filesep],'classification_results'),'wt');
+header = 'tracks for spheres, tracks for tubes\n';
+classification_results = [n_tracks_sphere n_tracks_tube];
+fprintf(fid,header);
+    if fid > 0
+        fprintf(fid,'%f,%f,%f,%f\n',classification_results);
+        fclose(fid);
+    end 
+
+%% Print out figures with the tracking and analysis results
+
+if print_results
+%calculating an average velocity for each object (each separate track)
+    figure('Units','centimeters',...
+                'Position',[0 0 width height],...
+                'PaperPositionMode','auto');
+            set(gca,...
+                'FontSize',font_size,...
+                'Units','points',...
+                'FontUnits','points',...
+                'FontWeight','normal',...
+                'FontName','Helvetica');
+    histogram(avg_velocity_sphere,'BinWidth',10)
+    hold on
+    histogram(avg_velocity_tube,'BinWidth',10)
+    legend({'sphere','tube'},'Location','NorthEast','FontSize',font_size);
+    title('Average particle velocity');
+    hold off
+    saveas(gcf,[output_dir_path filesep 'avg_velocity']);
+    print([output_dir_path filesep 'avg_velocity'],'-dpng','-r300') % print at 300 dpi resolution
+
+    % Plotting the stepwise displacement of the particles
+    figure('Units','centimeters',...
+                'Position',[0 0 width height],...
+                'PaperPositionMode','auto');
+            set(gca,...
+                'FontSize',font_size,...
+                'Units','points',...
+                'FontUnits','points',...
+                'FontWeight','normal',...
+                'FontName','Helvetica');
+    histogram(all_disp_sphere, 50,'BinWidth',1)
+    hold on
+    histogram(all_disp_tube, 50,'BinWidth',1)
+    legend({'sphere','tube'},'Location','NorthEast','FontSize',font_size);
+    title('Stepwise particle displacement');
+    hold off
+    saveas(gcf,[output_dir_path filesep 'stepwise_displacement']);
+    print([output_dir_path filesep 'stepwise_displacement'],'-dpng','-r300') % print at 300 dpi resolution
+
+
+    % Plotting the total displacement of the particles
+    figure('Units','centimeters',...
+                'Position',[0 0 width height],...
+                'PaperPositionMode','auto');
+            set(gca,...
+                'FontSize',font_size,...
+                'Units','points',...
+                'FontUnits','points',...
+                'FontWeight','normal',...
+                'FontName','Helvetica');
+    histogram(list_total_disp_sphere,30,'BinWidth',5)
+    hold on
+    histogram(list_total_disp_tube,30,'BinWidth',5)
+    legend({'sphere','tube'},'Location','NorthEast','FontSize',font_size);
+    title('Total particle displacement');
+    hold off
+    saveas(gcf,[output_dir_path filesep 'total_displacement']);
+    print([output_dir_path filesep 'total_displacement'],'-dpng','-r300') % print at 300 dpi resolution
+
+end 
+
+
