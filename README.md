@@ -7,6 +7,8 @@ shapes and move with different speeds depending on their shape.
 The script classifies lysosomes into two categories, spheres and tubes, and then uses the Crocker and Grier
 algorithm (Crocker and Grier, 1996) in a MATLAB implementation to track the spherical and tubular particles individually.
 
+![Lysosomes](images/lysosomeClassification.jpg)
+
 <p align="center"> 
 <img src="https://github.com/pedropabloVR/lysosome_analysis/images/lysosomeClassification.jpg">
 </p>
